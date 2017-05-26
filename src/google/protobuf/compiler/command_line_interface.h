@@ -49,6 +49,7 @@
 namespace google {
 namespace protobuf {
 
+//proto文件中定义的数据类型可通过FileDescriptor来遍历、查看
 class Descriptor;            // descriptor.h
 class DescriptorPool;        // descriptor.h
 class FileDescriptor;        // descriptor.h
@@ -64,26 +65,21 @@ class CodeGenerator;        // code_generator.h
 class GeneratorContext;      // code_generator.h
 class DiskSourceTree;       // importer.h
 
-// This class implements the command-line interface to the protocol compiler.
-// It is designed to make it very easy to create a custom protocol compiler
-// supporting the languages of your choice.  For example, if you wanted to
-// create a custom protocol compiler binary which includes both the regular
-// C++ support plus support for your own custom output "Foo", you would
-// write a class "FooGenerator" which implements the CodeGenerator interface,
-// then write a main() procedure like this:
+// 这个类实现了protoc的命令行接口，使得protoc很容易扩展。
+// 例如我们想让protoc既支持cpp又支持另一种语言foo，那么我们可以定义一个实现了
+// CodeGenerator接口的FooGenerator，然后在protoc的main方法中对这两种语言cpp、Foo
+// 及其对应的CodeGenerator进行注册。
 //
 //   int main(int argc, char* argv[]) {
 //     google::protobuf::compiler::CommandLineInterface cli;
 //
-//     // Support generation of C++ source and headers.
+//     // 支持cpp
 //     google::protobuf::compiler::cpp::CppGenerator cpp_generator;
-//     cli.RegisterGenerator("--cpp_out", &cpp_generator,
-//       "Generate C++ source and header.");
+//     cli.RegisterGenerator("--cpp_out", &cpp_generator, "Generate C++ source and header.");
 //
-//     // Support generation of Foo code.
+//     // 支持foo
 //     FooGenerator foo_generator;
-//     cli.RegisterGenerator("--foo_out", &foo_generator,
-//       "Generate Foo file.");
+//     cli.RegisterGenerator("--foo_out", &foo_generator, "Generate Foo file.");
 //
 //     return cli.Run(argc, argv);
 //   }
@@ -97,84 +93,77 @@ class LIBPROTOC_EXPORT CommandLineInterface {
   CommandLineInterface();
   ~CommandLineInterface();
 
-  // Register a code generator for a language.
+  // 为某种编程语言注册一个对应的代码生成器（其实这里也不一定非得是语言）
   //
-  // Parameters:
-  // * flag_name: The command-line flag used to specify an output file of
-  //   this type.  The name must start with a '-'.  If the name is longer
-  //   than one letter, it must start with two '-'s.
-  // * generator: The CodeGenerator which will be called to generate files
-  //   of this type.
-  // * help_text: Text describing this flag in the --help output.
+  // 命令行接口的参数:
+  // @param flag_name 指定输出文件类型的命令，例如--cpp_out，参数名字必须以“-”开头，
+                      如果名字大于两个字符，则必须以“--”开头。
+  // @param generator 与flag_name对应的CodeGenerator接口实现
+  // @param help_text 执行protoc --help的时候对这里的flag_name的说明性信息
   //
-  // Some generators accept extra parameters.  You can specify this parameter
-  // on the command-line by placing it before the output directory, separated
-  // by a colon:
+  // 某些代码生成器可接受额外参数，这些参数在输出路径之前给出，与输出路径之间用“:”分隔。
   //   protoc --foo_out=enable_bar:outdir
-  // The text before the colon is passed to CodeGenerator::Generate() as the
-  // "parameter".
+  // 这里的:outdir之前的enable_bar被作为参数传递给CodeGenerator::Generate()的参数。
   void RegisterGenerator(const string& flag_name,
                          CodeGenerator* generator,
                          const string& help_text);
 
-  // Register a code generator for a language.
-  // Besides flag_name you can specify another option_flag_name that could be
-  // used to pass extra parameters to the registered code generator.
-  // Suppose you have registered a generator by calling:
-  //   command_line_interface.RegisterGenerator("--foo_out", "--foo_opt", ...)
-  // Then you could invoke the compiler with a command like:
-  //   protoc --foo_out=enable_bar:outdir --foo_opt=enable_baz
-  // This will pass "enable_bar,enable_baz" as the parameter to the generator.
+  // 为某种编程语言注册一个对应的代码生成器
+  // ...
+  // @param option_flag_name 指定额外的选项
+  // ...
+  //
+  // 与前面一个函数RegisterGenerator所不同的是，这个重载函数多个参数
+  // option_flag_name，通过这个函数注册的语言和代码生成器可以接受额外的参数。例
+  // 如通过command_line_interface.RegisterGenerator("--foo_out", "--foo_opt", ...)
+  // 注册了foo以及对应代码生成器，那么我们可以在执行protoc 的时候指定额外的参数
+  // --foo_opt：protoc --foo_out=enable_bar:outdir --foo_opt=enable_baz，此时传
+  // 递给代码生成器的参数将会包括enable_bar和enable_baz。
   void RegisterGenerator(const string& flag_name,
                          const string& option_flag_name,
                          CodeGenerator* generator,
                          const string& help_text);
 
-  // Enables "plugins".  In this mode, if a command-line flag ends with "_out"
-  // but does not match any registered generator, the compiler will attempt to
-  // find a "plugin" to implement the generator.  Plugins are just executables.
-  // They should live somewhere in the PATH.
-  //
-  // The compiler determines the executable name to search for by concatenating
-  // exe_name_prefix with the unrecognized flag name, removing "_out".  So, for
-  // example, if exe_name_prefix is "protoc-" and you pass the flag --foo_out,
-  // the compiler will try to run the program "protoc-foo".
-  //
-  // The plugin program should implement the following usage:
+  // RegisterGenerator方法是在protoc的main方法中进行语言、代码生成器的注册，在
+  // 生产环境中不可能允许开发人员肆意修改公用程序库，这意味着我们如果要在稳定地
+  // protoc v2.5.0基础上进行源码的修改这条路是行不通的，那么如何自由地扩展其功
+  // 能呢？protoc提供了“plugin”机制，我们可以通过自定义插件来实现对其他语言
+  //（甚至不是语言）的支持。
+  // 开启protoc对插件的支持，这种模式下，如果一个命令行选项以_out结尾，例如
+  // --xxx_out，但是在protoc已经注册的语言支持中没有找到匹配的语言及代码生成器，
+  // 这个时候protoc就会去检查是否有匹配的插件支持这种语言，将这个插件来作为代
+  // 码生成器使用。这里的的protoc插件是一个$PATH中可搜索到的可执行程序，当然
+  // 这个可执行程序稍微有点特殊。
+  // 这里插件名称（可执行程序名称）是如何确定的呢？选项--xxx_out中，截取“xxx”，
+  // 然后根据${exe_name_prefix}以及xxx来拼接出一个插件的名字，假如${exe_name_prefix}
+  // 是protoc-，那么插件的名字就是protoc-xxx，protoc将尝试执行这个程序来完成代
+  // 码生成的工作。
+  // 假定插件的名字是plugin，protoc是这样调用这个插件的：
   //   plugin [--out=OUTDIR] [--parameter=PARAMETER] PROTO_FILES < DESCRIPTORS
-  // --out indicates the output directory (as passed to the --foo_out
-  // parameter); if omitted, the current directory should be used.  --parameter
-  // gives the generator parameter, if any was provided (see below).  The
-  // PROTO_FILES list the .proto files which were given on the compiler
-  // command-line; these are the files for which the plugin is expected to
-  // generate output code.  Finally, DESCRIPTORS is an encoded FileDescriptorSet
-  // (as defined in descriptor.proto).  This is piped to the plugin's stdin.
-  // The set will include descriptors for all the files listed in PROTO_FILES as
-  // well as all files that they import.  The plugin MUST NOT attempt to read
-  // the PROTO_FILES directly -- it must use the FileDescriptorSet.
+  // 选项说明：
+  // --out：指明了插件代码生成时的输出目录（跟通过--foo_out传递给protoc的一样）,
+  //        如果省略这个参数，输出目录就是当前目录。
+  // --parameter：指明了传递给代码生成器的参数。
+  // PROTO_FILES：指明了protoc调用时传递给protoc的待处理的.proto文件列表。
+  // DESCRIPTORS: 编码后的FileDescriptorSet（这个在descriptor.proto中定义），
+  // 这里编码后的数据通过管道重定向到插件的标准输入，这里的FileDescriptorSet包括
+  // PROTO_FILES中列出的所有proto文件的descriptors，也包括这些PROTO_FILES中
+  // proto文件import进来的其他proto文件。插件不应该直接读取PROTO_FILES中的
+  // proto文件，而应该使用这里的DESCRIPTORS。
   //
-  // The plugin should generate whatever files are necessary, as code generators
-  // normally do.  It should write the names of all files it generates to
-  // stdout.  The names should be relative to the output directory, NOT absolute
-  // names or relative to the current directory.  If any errors occur, error
-  // messages should be written to stderr.  If an error is fatal, the plugin
-  // should exit with a non-zero exit code.
-  //
-  // Plugins can have generator parameters similar to normal built-in
-  // generators. Extra generator parameters can be passed in via a matching
-  // "_opt" parameter. For example:
-  //   protoc --plug_out=enable_bar:outdir --plug_opt=enable_baz
-  // This will pass "enable_bar,enable_baz" as the parameter to the plugin.
-  //
+  // 插件跟protoc main函数中注册的代码生成器一样，它也需要生成所有必须的文件。
+  // 插件会将所有要生成的文件的名字写到stdout，插件名字是相对于当前输出目录的。如
+  // 果插件工作过程中发生了错误，需要将错误信息写到stderr，如果发生了严重错误，
+  // 插件应该退出并返回一个非0的返回码。插件写出的数据会被protoc读取并执行后续
+  // 处理逻辑。
   void AllowPlugins(const string& exe_name_prefix);
 
-  // Run the Protocol Compiler with the given command-line parameters.
-  // Returns the error code which should be returned by main().
+  // 根据指定的命令行参数来执行protocol compiler，返回值将由main返回。
   //
-  // It may not be safe to call Run() in a multi-threaded environment because
-  // it calls strerror().  I'm not sure why you'd want to do this anyway.
+  // Run()方法是非线程安全的，因为其中调用了strerror()，不要在多线程环境下使用。
   int Run(int argc, const char* const argv[]);
 
+  // proto路径解析的控制说明，fixme
   // Call SetInputsAreCwdRelative(true) if the input files given on the command
   // line should be interpreted relative to the proto import path specified
   // using --proto_path or -I flags.  Otherwise, input file names will be
@@ -187,9 +176,7 @@ class LIBPROTOC_EXPORT CommandLineInterface {
     inputs_are_proto_path_relative_ = enable;
   }
 
-  // Provides some text which will be printed when the --version flag is
-  // used.  The version of libprotoc will also be printed on the next line
-  // after this text.
+  // 设置执行protoc --version时打印的版本相关的信息，这行版本信息的下一行也会打印libprotoc的版本。
   void SetVersionInfo(const string& text) {
     version_info_ = text;
   }
@@ -197,68 +184,72 @@ class LIBPROTOC_EXPORT CommandLineInterface {
 
  private:
   // -----------------------------------------------------------------
+ 
+  // 这个类的后续部分代码，虽然也比较重要，但是即便在这里先不解释，也不会给我
+  // 们的理解造成太多干扰，为了简化篇幅并且避免过早地陷入细节而偏离对整体的把
+  // 握，这里我先把这个类的后续部分代码进行删减……只保留相对比较重要的。
 
   class ErrorPrinter;
   class GeneratorContextImpl;
   class MemoryOutputStream;
   typedef hash_map<string, GeneratorContextImpl*> GeneratorContextMap;
 
-  // Clear state from previous Run().
+  // 清楚上次Run()运行时设置的状态
   void Clear();
 
-  // Remaps each file in input_files_ so that it is relative to one of the
-  // directories in proto_path_.  Returns false if an error occurred.  This
-  // is only used if inputs_are_proto_path_relative_ is false.
-  bool MakeInputsBeProtoPathRelative(
-    DiskSourceTree* source_tree);
+  // 映射input_files_中的每个文件，使其变成相对于proto_path_中对应目录的相对路径
+  // - 当inputs_are_proto_path_relative_为false的时候才会调用这个函数；
+  // - 出错返回false，反之返回true；
+  bool MakeInputsBeProtoPathRelative(DiskSourceTree* source_tree);
 
-  // Return status for ParseArguments() and InterpretArgument().
+  // ParseArguments() & InterpretArgument()返回的状态
   enum ParseArgumentStatus {
     PARSE_ARGUMENT_DONE_AND_CONTINUE,
     PARSE_ARGUMENT_DONE_AND_EXIT,
     PARSE_ARGUMENT_FAIL
   };
 
-  // Parse all command-line arguments.
+  // 解析所有的命令行参数
   ParseArgumentStatus ParseArguments(int argc, const char* const argv[]);
 
-
-  // Parses a command-line argument into a name/value pair.  Returns
-  // true if the next argument in the argv should be used as the value,
-  // false otherwise.
-  //
-  // Examples:
-  //   "-Isrc/protos" ->
-  //     name = "-I", value = "src/protos"
-  //   "--cpp_out=src/foo.pb2.cc" ->
-  //     name = "--cpp_out", value = "src/foo.pb2.cc"
-  //   "foo.proto" ->
-  //     name = "", value = "foo.proto"
+  // 解析某个命令行参数
+  // - 参数名放name，参数值放value
+  // - 如果argv中的下一个参数应该被当做value则返回true，反之返回false
   bool ParseArgument(const char* arg, string* name, string* value);
 
-  // Interprets arguments parsed with ParseArgument.
+  // 解析某个命令行参数的状态
   ParseArgumentStatus InterpretArgument(const string& name,
                                         const string& value);
-
   // Print the --help text to stderr.
   void PrintHelpText();
 
-  // Generate the given output file from the given input.
-  struct OutputDirective;  // see below
+  // 描述了一个输出目录下如何从输入的proto文件生成指定的源代码文件
+  struct OutputDirective;
+
+  // 对解析成功的每个proto文件，生成对应的源代码文件
+  // @param parsed_files 解析成功的proto文件vector
+  // @param output_directive 输出指示，包括了文件名、语言、代码生成器、输出目录
+  // @param generator_context 代码生成器上下文，可记录待输出文件名、文件内容、尺寸等信息
   bool GenerateOutput(const std::vector<const FileDescriptor*>& parsed_files,
                       const OutputDirective& output_directive,
                       GeneratorContext* generator_context);
+
+  // 对解析成功的每个proto文件，调用protoc插件生成对应的源代码
+  // @param parsed_files 解析成功的proto文件vector
+  // @param plugin_name 插件的名称，命名方式一般是protoc-gen-${lang}
+  // @param parameter 传递给protoc插件的参数
+  // @param generator_context 代码生成器上下文，可记录待输出文件名、文件内容、尺寸等信息
+  // @param error 错误信息
   bool GeneratePluginOutput(
       const std::vector<const FileDescriptor*>& parsed_files,
       const string& plugin_name, const string& parameter,
       GeneratorContext* generator_context, string* error);
 
-  // Implements --encode and --decode.
+  // 编码、解码，实现命令行中的--encode和--decode选项
   bool EncodeOrDecode(const DescriptorPool* pool);
 
-  // Implements the --descriptor_set_out option.
-  bool WriteDescriptorSet(
-      const std::vector<const FileDescriptor*>& parsed_files);
+  // 实现命令行中的--descriptor_set_out选项
+  bool WriteDescriptorSet(const std::vector<const FileDescriptor*>& parsed_files);
 
   // Implements the --dependency_out option
   bool GenerateDependencyManifestFile(
@@ -266,15 +257,12 @@ class LIBPROTOC_EXPORT CommandLineInterface {
       const GeneratorContextMap& output_directories,
       DiskSourceTree* source_tree);
 
-  // Get all transitive dependencies of the given file (including the file
-  // itself), adding them to the given list of FileDescriptorProtos.  The
-  // protos will be ordered such that every file is listed before any file that
-  // depends on it, so that you can call DescriptorPool::BuildFile() on them
-  // in order.  Any files in *already_seen will not be added, and each file
-  // added will be inserted into *already_seen.  If include_source_code_info is
-  // true then include the source code information in the FileDescriptorProtos.
-  // If include_json_name is true, populate the json_name field of
-  // FieldDescriptorProto for all fields.
+  // 获取指定proto文件依赖的proto文件列表（列表中包括该proto文件本身）
+  // - proto文件通过FileDescriptorProto表示；
+  // - 这些依赖的proto文件列表会被重新排序，被依赖的proto会被排在依它的proto前面,
+  //   这样我们就可以调用DescriptorPool::BuildFile()来建立最终的源代码文件；
+  // - already_seen中已经列出的proto文件不会被重复添加，每一个被添加的proto文件都被加入到already_seen中；
+  // - 如果include_source_code_info为true，则包括源代码信息到FileDescriptorProtos中；
   static void GetTransitiveDependencies(
       const FileDescriptor* file,
       bool include_json_name,
@@ -300,13 +288,13 @@ class LIBPROTOC_EXPORT CommandLineInterface {
 
   // -----------------------------------------------------------------
 
-  // The name of the executable as invoked (i.e. argv[0]).
+  // 当前被调用的程序的名称，argv[0]
   string executable_name_;
 
-  // Version info set with SetVersionInfo().
+  // 通过SetVersionInfo()设置的版本信息
   string version_info_;
 
-  // Registered generators.
+  // 注册的代码生成器
   struct GeneratorInfo {
     string flag_name;
     string option_flag_name;
@@ -314,25 +302,29 @@ class LIBPROTOC_EXPORT CommandLineInterface {
     string help_text;
   };
   typedef std::map<string, GeneratorInfo> GeneratorMap;
+  // flag_name、代码生成器map
   GeneratorMap generators_by_flag_name_;
+  // option_name、代码生成器map
   GeneratorMap generators_by_option_name_;
-  // A map from generator names to the parameters specified using the option
-  // flag. For example, if the user invokes the compiler with:
-  //   protoc --foo_out=outputdir --foo_opt=enable_bar ...
-  // Then there will be an entry ("--foo_out", "enable_bar") in this map.
+
+  // flag_name、option map
+  // - 如果调用protoc --foo_out=outputdir --foo_opt=enable_bar ...，
+  //   map中将包括一个<--foo_out,enable_bar> entry.
   std::map<string, string> generator_parameters_;
+
   // Similar to generator_parameters_, but stores the parameters for plugins.
   std::map<string, string> plugin_parameters_;
 
-  // See AllowPlugins().  If this is empty, plugins aren't allowed.
+  // protoc插件前缀，如果该变量为空，那么不允许使用插件
+  // @see AllowPlugins()
   string plugin_prefix_;
 
-  // Maps specific plugin names to files.  When executing a plugin, this map
-  // is searched first to find the plugin executable.  If not found here, the
-  // PATH (or other OS-specific search strategy) is searched.
+  // 将protoc插件名称映射为具体的插件可执行文件
+  // - 执行一个插件可执行程序时，首先搜索这个map，如果找到则直接执行；
+  // - 如果这个map中找不到匹配的插件可执行程序，则搜索PATH寻找可执行程序执行；
   std::map<string, string> plugins_;
 
-  // Stuff parsed from command line.
+  // protoc命令行中指定的工作模式
   enum Mode {
     MODE_COMPILE,  // Normal mode:  parse .proto files and compile them.
     MODE_ENCODE,   // --encode:  read text from stdin, write binary to stdout.
@@ -369,22 +361,21 @@ class LIBPROTOC_EXPORT CommandLineInterface {
   // presented to the user. "%s" will be replaced with the violating import.
   string direct_dependencies_violation_msg_;
 
-  // output_directives_ lists all the files we are supposed to output and what
-  // generator to use for each.
+  // protoc调用时每个--${lang}_out都对应着一个OutputDirective
   struct OutputDirective {
     string name;                // E.g. "--foo_out"
     CodeGenerator* generator;   // NULL for plugins
     string parameter;
     string output_location;
   };
+  // 一次protoc调用可能会同时制定多个--${lang}_out选项
   std::vector<OutputDirective> output_directives_;
 
-  // When using --encode or --decode, this names the type we are encoding or
-  // decoding.  (Empty string indicates --decode_raw.)
+  // 当使用--encode或者--decode的时候，codec_type_指明了encode或者decode的类型
+  // - 如果codec_type_为空则表示--decode_raw类型;
   string codec_type_;
 
-  // If --descriptor_set_out was given, this is the filename to which the
-  // FileDescriptorSet should be written.  Otherwise, empty.
+  // 如果指定了--descriptor_set_out选项，FileDescriptorSet将被输出到指定的文件
   string descriptor_set_name_;
 
   // If --dependency_out was given, this is the path to the file where the
@@ -396,16 +387,14 @@ class LIBPROTOC_EXPORT CommandLineInterface {
   // better code.
   string profile_path_;
 
-  // True if --include_imports was given, meaning that we should
-  // write all transitive dependencies to the DescriptorSet.  Otherwise, only
-  // the .proto files listed on the command-line are added.
+  // 如果指定了--include-imports那么所有的依赖proto都要写到DescriptorSet；
+  // 如果未指定，则只把命令行中列出的proto文件写入；
   bool imports_in_descriptor_set_;
 
-  // True if --include_source_info was given, meaning that we should not strip
-  // SourceCodeInfo from the DescriptorSet.
+  // 如果指定--include_source_info为true，则不能从DescriptorSet中删除SourceCodeInfo
   bool source_info_in_descriptor_set_;
 
-  // Was the --disallow_services flag used?
+  // --disallow_services_这个选项有被使用吗？
   bool disallow_services_;
 
   // See SetInputsAreProtoPathRelative().

@@ -306,14 +306,23 @@ void Subprocess::Start(const string& program, SearchMode search_mode) {
     GOOGLE_LOG(FATAL) << "fork: " << strerror(errno);
   } else if (child_pid_ == 0) {
     // We are the child.
+    // 将子进程的stdin重定向到stdin_pipe的读端
     dup2(stdin_pipe[0], STDIN_FILENO);
+    // 将子进程的stdout重定向到stdout_pipe的写端
     dup2(stdout_pipe[1], STDOUT_FILENO);
 
+    // 子进程通过0、1对管道进行操作就够了，释放多余的fd
     close(stdin_pipe[0]);
     close(stdin_pipe[1]);
     close(stdout_pipe[0]);
     close(stdout_pipe[1]);
 
+    // 根据程序搜索模式调用exec族函数来调用插件执行，exec族函数通过替换当前进
+    // 程的代码段、数据段等内存数据信息，然后调整寄存器信息，使得进程转而去执
+    // 行插件的代码。插件代码执行之前进程就已经将fd 0、1重定向到父进程clone过
+    // 来的管道了，因此插件程序的输出将直接被输出到父进程创建的管道中。
+    // 正常情况下，exec一旦执行成功，那么久绝不对执行switch后续的代码了，只有
+    // 出错才可能会执行到后续的代码。
     switch (search_mode) {
       case SEARCH_PATH:
         execvp(argv[0], argv);
@@ -323,6 +332,8 @@ void Subprocess::Start(const string& program, SearchMode search_mode) {
         break;
     }
 
+    // 只有出错才可能会执行到这里的代码。
+    //
     // Write directly to STDERR_FILENO to avoid stdio code paths that may do
     // stuff that is unsafe here.
     int ignored;
@@ -337,10 +348,13 @@ void Subprocess::Start(const string& program, SearchMode search_mode) {
   } else {
     free(argv[0]);
 
+    // 父进程释放无用的fd
     close(stdin_pipe[0]);
     close(stdout_pipe[1]);
 
+    // 子进程的stdin，对父进程来说也就是管道stdin_pipe的写端，CodeGeneratorRequest将通过这个fd写给子进程
     child_stdin_ = stdin_pipe[1];
+    // 子进程的stdout，对父进程来说也就是管道stdout_pipe的读端，CodeGeneratorResponse将通过这个fd从子进程读取
     child_stdout_ = stdout_pipe[0];
   }
 }
@@ -362,6 +376,7 @@ bool Subprocess::Communicate(const Message& input, Message* output,
   int input_pos = 0;
   int max_fd = std::max(child_stdin_, child_stdout_);
 
+  // child_stdout==-1的时候表示子进程返回的数据已经读取完毕了，可以gg了
   while (child_stdout_ != -1) {
     fd_set read_fds;
     fd_set write_fds;
@@ -374,6 +389,7 @@ bool Subprocess::Communicate(const Message& input, Message* output,
       FD_SET(child_stdin_, &write_fds);
     }
 
+    // 这种情景下也用select，果然很google！
     if (select(max_fd + 1, &read_fds, &write_fds, NULL, NULL) < 0) {
       if (errno == EINTR) {
         // Interrupted by signal.  Try again.
@@ -382,7 +398,8 @@ bool Subprocess::Communicate(const Message& input, Message* output,
         GOOGLE_LOG(FATAL) << "select: " << strerror(errno);
       }
     }
-
+    
+    // stdout_pipe写事件就绪，写请求CodeGeneratorRequest给子进程
     if (child_stdin_ != -1 && FD_ISSET(child_stdin_, &write_fds)) {
       int n = write(child_stdin_, input_data.data() + input_pos,
                                   input_data.size() - input_pos);
@@ -394,6 +411,7 @@ bool Subprocess::Communicate(const Message& input, Message* output,
         input_pos += n;
       }
 
+      // 代码生成请求已经成功写给子进程了，关闭相关的fd
       if (input_pos == input_data.size()) {
         // We're done writing.  Close.
         close(child_stdin_);
@@ -401,6 +419,7 @@ bool Subprocess::Communicate(const Message& input, Message* output,
       }
     }
 
+    // stdin_pipe读事件就绪，读取子进程返回的CodeGeneratorResponse
     if (child_stdout_ != -1 && FD_ISSET(child_stdout_, &read_fds)) {
       char buffer[4096];
       int n = read(child_stdout_, buffer, sizeof(buffer));
@@ -408,13 +427,15 @@ bool Subprocess::Communicate(const Message& input, Message* output,
       if (n > 0) {
         output_data.append(buffer, n);
       } else {
-        // We're done reading.  Close.
+        // 子进程返回的CodeGeneratorResponse已经读取完毕，关闭相关的fd
         close(child_stdout_);
         child_stdout_ = -1;
       }
     }
   }
 
+  // 子进程还没有读取CodeGeneratorRequest完毕，就关闭了输出，这种情况下也不可
+  // 能读取到返回的CodeGeneratorResponse了，这种情况很可能是出现了异常。
   if (child_stdin_ != -1) {
     // Child did not finish reading input before it closed the output.
     // Presumably it exited with an error.
@@ -422,6 +443,8 @@ bool Subprocess::Communicate(const Message& input, Message* output,
     child_stdin_ = -1;
   }
 
+  // 等待子进程结束，子进程退出之后，需要父进程来清理子进程占用的部分资源。
+  // 如果当前父进程不waitpid的话，子进程的父进程会变为init或者systemd进程，同样也会被清理的。
   int status;
   while (waitpid(child_pid_, &status, 0) == -1) {
     if (errno != EINTR) {
@@ -429,9 +452,12 @@ bool Subprocess::Communicate(const Message& input, Message* output,
     }
   }
 
-  // Restore SIGPIPE handling.
+  // 刚才为了阻止SIGPIPE信号到达时导致进程终止，我们修改了SIGPIPE的信号处理函
+  // 数，这里可以恢复之前的SIGPIPE的信号处理函数。
   signal(SIGPIPE, old_pipe_handler);
 
+  // 根据子进程的退出状态执行后续的处理逻辑
+  // - 异常处理
   if (WIFEXITED(status)) {
     if (WEXITSTATUS(status) != 0) {
       int error_code = WEXITSTATUS(status);
@@ -449,6 +475,10 @@ bool Subprocess::Communicate(const Message& input, Message* output,
     return false;
   }
 
+  // 将子进程返回的串行化之后的CodeGeneratorResponse数据进行反串行化，反串行化
+  // 成Message对象，实际上这里的Message::ParseFromString(const string&)是个虚
+  // 函数，是被CodeGeneratorResponse这个类重写了的，反串行化过程与具体的类密切
+  // 相关，也必须在派生类中予以实现。
   if (!output->ParseFromString(output_data)) {
     *error = "Plugin output is unparseable: " + CEscape(output_data);
     return false;

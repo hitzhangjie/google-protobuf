@@ -63,6 +63,7 @@ message Version {
   optional string suffix = 4;
 }
 
+// 发送给插件的代码生成请求
 // An encoded CodeGeneratorRequest is written to the plugin's stdin.
 message CodeGeneratorRequest {
   // The .proto files that were explicitly listed on the command-line.  The
@@ -71,6 +72,7 @@ message CodeGeneratorRequest {
   repeated string file_to_generate = 1;
 
   // The generator parameter passed on the command-line.
+  //传递给插件代码生成器的参数
   optional string parameter = 2;
 
   // FileDescriptorProtos for all files in files_to_generate and everything
@@ -84,15 +86,19 @@ message CodeGeneratorRequest {
   // the entire set into memory at once.  However, as of this writing, this
   // is not similarly optimized on protoc's end -- it will store all fields in
   // memory at once before sending them to the plugin.
-  //
-  // Type names of fields and extensions in the FileDescriptorProto are always
-  // fully qualified.
+
+  // 每一个正确解析的proto文件都用一个FileDescriptorProto来表示；
+  // 这里的FileDescriptorProto与FileDescriptor其实是对应的，在请求插件进行代码
+  // 生成的时候直接就有这样的代码FileDescriptor::CopyTo(FileDescriptorProto&)
+  // 的用法。而在descriptor.h和descriptor.proto中查看二者的描述时，其注释清清
+  // 楚楚地写着都是描述的一个完整的proto文件。
   repeated FileDescriptorProto proto_file = 15;
 
   // The version number of protocol compiler.
   optional Version compiler_version = 3;
 }
 
+// 插件返回的代码生成响应
 // The plugin writes an encoded CodeGeneratorResponse to stdout.
 message CodeGeneratorResponse {
   // Error message.  If non-empty, code generation failed.  The plugin process
@@ -103,64 +109,42 @@ message CodeGeneratorResponse {
   // problem in protoc itself -- such as the input CodeGeneratorRequest being
   // unparseable -- should be reported by writing a message to stderr and
   // exiting with a non-zero status code.
+
+  // 错误信息
   optional string error = 1;
 
   // Represents a single generated file.
+  // 生成的源代码文件消息类型，注意这里是一个内部类型
   message File {
-    // The file name, relative to the output directory.  The name must not
-    // contain "." or ".." components and must be relative, not be absolute (so,
-    // the file cannot lie outside the output directory).  "/" must be used as
-    // the path separator, not "\".
-    //
-    // If the name is omitted, the content will be appended to the previous
-    // file.  This allows the generator to break large files into small chunks,
-    // and allows the generated text to be streamed back to protoc so that large
-    // files need not reside completely in memory at one time.  Note that as of
-    // this writing protoc does not optimize for this -- it will read the entire
-    // CodeGeneratorResponse before writing files to disk.
+    // 待生成的源代码文件名（相对于输出目录），文件名中不能包括.或者..，路径是
+    // 相对输出目录的路径，不能用绝对路径，另分隔符必须用/。
+    // 如果name没有指定，那么输出的内容将追加到前一个输出的源代码文件中，这种
+    // 方式使得代码生成器能够将一个大文件的生成分多次写入来完成，不用一次性将很
+    // 大数据量的数据放在内存中。这里需要指出的是，protoc中并没有针对这种情况
+    //  进行特殊的优化，它等待读取完整的CodeGeneratorResponse再写出到磁盘。
     optional string name = 1;
 
-    // If non-empty, indicates that the named file should already exist, and the
-    // content here is to be inserted into that file at a defined insertion
-    // point.  This feature allows a code generator to extend the output
-    // produced by another code generator.  The original generator may provide
-    // insertion points by placing special annotations in the file that look
-    // like:
+    // 如果insertion_point不空的话，name字段也不能为空，并且假定name字段指定的
+    // 文件已经存在了。这里的内容将被插入到name指定的文件中的特定插入点（注解）的
+    // 上一行。这有助于扩展代码生成器输出的内容。在一次protoc调用中，可能会同
+    // 时指定多个protoc插件，前面的插件可能会在输出的内容中指定插入点，后面的
+    // 插件可能会在这些指定的插入点的位置继续扩展代码内容。
+    // 例如，前面的一个插件在输出的代码内容中增加了这样一行注解：
     //   @@protoc_insertion_point(NAME)
-    // The annotation can have arbitrary text before and after it on the line,
-    // which allows it to be placed in a comment.  NAME should be replaced with
-    // an identifier naming the point -- this is what other generators will use
-    // as the insertion_point.  Code inserted at this point will be placed
-    // immediately above the line containing the insertion point (thus multiple
-    // insertions to the same point will come out in the order they were added).
-    // The double-@ is intended to make it unlikely that the generated code
-    // could contain things that look like insertion points by accident.
+    // 这样就定义了一个插入点，插入点前面、后面可以包含任意的文本内容，即使在
+    // 注释里面也是可以的。这里的插入点定义中的NAME应该可以唯一标识一个插入点
+    // 才可以，类似于标识符，以供其他的插件使用，插件插入代码的时候将从插入点
+    // 的上一行开始自行插入。如果包含多个插入点的话，插入点的内容将被插件依次
+    // 扩展。
     //
-    // For example, the C++ code generator places the following line in the
-    // .pb.h files that it generates:
-    //   // @@protoc_insertion_point(namespace_scope)
-    // This line appears within the scope of the file's package namespace, but
-    // outside of any particular class.  Another plugin can then specify the
-    // insertion_point "namespace_scope" to generate additional classes or
-    // other declarations that should be placed in this scope.
-    //
-    // Note that if the line containing the insertion point begins with
-    // whitespace, the same whitespace will be added to every line of the
-    // inserted text.  This is useful for languages like Python, where
-    // indentation matters.  In these languages, the insertion point comment
-    // should be indented the same amount as any inserted code will need to be
-    // in order to work correctly in that context.
-    //
-    // The code generator that generates the initial file and the one which
-    // inserts into it must both run as part of a single invocation of protoc.
-    // Code generators are executed in the order in which they appear on the
-    // command line.
-    //
-    // If |insertion_point| is present, |name| must also be present.
+    // 一开始创建这个源代码文件的代码生成器或者插件与后面的继续扩展源代码插入
+    // 点位置内容的代码生成器或者插件，必须在protoc的同一次调用中，代码生成器
+    // 或者插件按照protoc命令行调用过程中指定的顺序依次调用。
     optional string insertion_point = 2;
 
-    // The file contents.
+    // 待写入到源代码中的内容
     optional string content = 15;
   }
+  // 一次要处理的 proto文件可能有多个，所以插件处理后这里的file是一个list
   repeated File file = 15;
 }

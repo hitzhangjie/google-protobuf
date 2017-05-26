@@ -11,6 +11,8 @@ cmake_policy(SET CMP0022 NEW)
 # Project
 project(protobuf C CXX)
 
+add_definitions("-g -O0")
+
 # Options
 option(protobuf_BUILD_TESTS "Build tests" ON)
 option(protobuf_BUILD_EXAMPLES "Build examples" OFF)
@@ -168,9 +170,9 @@ include(libprotobuf.cmake)
 include(libprotoc.cmake)
 include(protoc.cmake)
 
-if (protobuf_BUILD_TESTS)
-  include(tests.cmake)
-endif (protobuf_BUILD_TESTS)
+#if (protobuf_BUILD_TESTS)
+  #include(tests.cmake)
+#endif (protobuf_BUILD_TESTS)
 
 include(install.cmake)
 

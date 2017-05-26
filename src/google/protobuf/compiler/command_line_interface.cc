@@ -1529,18 +1529,28 @@ void CommandLineInterface::PrintHelpText() {
   }
 }
 
+// 根据输出指示, 为解析成功的proto文件调用代码生成器生成对应的代码并存储到generator_context
+//@param parsed_files 所有解析成功的proto文件，每个解析成功的proto文件都用一个FileDescriptor来表示
+//@param output_directive 输出指示，其指明了目标语言、语言对应的代码生成器、输出目录等
+//@param generator_context 代码生成器上下文，可记录生成的代码
 bool CommandLineInterface::GenerateOutput(
     const std::vector<const FileDescriptor*>& parsed_files,
     const OutputDirective& output_directive,
     GeneratorContext* generator_context) {
+
   // Call the generator.
   string error;
+
+  // 如果输出指示中没有设置对应的代码生成器，表明没有在protoc main中注册语言对应的代码生成器，
+  // 这种需要protoc通过插件机制，通过调用对应的插件来充当代码生成器的功能。
   if (output_directive.generator == NULL) {
     // This is a plugin.
     GOOGLE_CHECK(HasPrefixString(output_directive.name, "--") &&
           HasSuffixString(output_directive.name, "_out"))
         << "Bad name for plugin generator: " << output_directive.name;
 
+    // 实际上protoc搜索插件对应的可执行程序的时候，搜索的名称是“protoc-gen-”+“语言”，
+    // 如果我们调用的是protoc --xxx_out，那么实际搜索的就是protoc-gen-xxx。
     string plugin_name = PluginName(plugin_prefix_ , output_directive.name);
     string parameters = output_directive.parameter;
     if (!plugin_parameters_[plugin_name].empty()) {
@@ -1549,6 +1559,8 @@ bool CommandLineInterface::GenerateOutput(
       }
       parameters.append(plugin_parameters_[plugin_name]);
     }
+
+    // 调用protoc插件来生成代码，这是我们要重点看的，我们就是要实现自己的protoc插件
     if (!GeneratePluginOutput(parsed_files, plugin_name,
                               parameters,
                               generator_context, &error)) {
@@ -1556,6 +1568,7 @@ bool CommandLineInterface::GenerateOutput(
       return false;
     }
   } else {
+    // 这种是protoc main函数中正常注册的语言和代码生成器
     // Regular generator.
     string parameters = output_directive.parameter;
     if (!generator_parameters_[output_directive.name].empty()) {
@@ -1564,6 +1577,8 @@ bool CommandLineInterface::GenerateOutput(
       }
       parameters.append(generator_parameters_[output_directive.name]);
     }
+
+    // 为每个解析成功的proto文件生成代码
     if (!output_directive.generator->GenerateAll(
         parsed_files, parameters, generator_context, &error)) {
       // Generator returned an error.
@@ -1647,13 +1662,24 @@ bool CommandLineInterface::GenerateDependencyManifestFile(
   return true;
 }
 
+// 调用protoc插件为解析成功的proto文件生成代码
+//
+//@param parsed_files 解析成功的文件
+//@param plugin_name protoc插件名称（这个是拼接出来的protoc-gen-${lang}）
+//@param parameter 传给插件的参数
+//@param generator_context 代码生成器上下文，可记录生成的代码
+//@param error 代码生成过程中的错误信息
 bool CommandLineInterface::GeneratePluginOutput(
     const std::vector<const FileDescriptor*>& parsed_files,
     const string& plugin_name,
     const string& parameter,
     GeneratorContext* generator_context,
     string* error) {
+
+  // protoc生成一个代码生成请求，并发送给插件
   CodeGeneratorRequest request;
+
+  // protoc插件根据接收到的代码生成请求生成代码，并发送响应给protoc
   CodeGeneratorResponse response;
 
   // Build the request.
@@ -1677,6 +1703,11 @@ bool CommandLineInterface::GeneratePluginOutput(
   version->set_patch(GOOGLE_PROTOBUF_VERSION % 1000);
   version->set_suffix(GOOGLE_PROTOBUF_VERSION_SUFFIX);
 
+  // fork出一个子进程，子进程来执行插件完成代码生成工作，
+  // 父子进程之间是通过管道通信完成请求、响应过程，如何控制子进程的stdin、stdout，
+  // 这个可以通过dup2或者dup3来控制间fd 0、1分别设置到管道的读端、写端。
+  // 事实上protobuf的开发人员也是这么来实现的。
+
   // Invoke the plugin.
   Subprocess subprocess;
 
@@ -1687,6 +1718,8 @@ bool CommandLineInterface::GeneratePluginOutput(
   }
 
   string communicate_error;
+
+  // 请求插件生成代码
   if (!subprocess.Communicate(request, &response, &communicate_error)) {
     *error = strings::Substitute("$0: $1", plugin_name, communicate_error);
     return false;
@@ -1699,10 +1732,12 @@ bool CommandLineInterface::GeneratePluginOutput(
     const CodeGeneratorResponse::File& output_file = response.file(i);
 
     if (!output_file.insertion_point().empty()) {
-      // Open a file for insert.
-      // We reset current_output to NULL first so that the old file is closed
-      // before the new one is opened.
+      // 首先关闭当前正在写入的文件数据（用CodeGeneratorResponse表示）
+      // 打开待写入的文件数据，这个文件数据已经存在，定位到准确的插入点位置执行写入，然后关闭文件
+      // - 这里的插入点如何定义，我们在后面再进行说明。具体可参考plugin.proto和plugin.pb.h。
       current_output.reset();
+
+      // OpenForInsert返回一个输出流，以方便后面写入编码后数据
       current_output.reset(generator_context->OpenForInsert(
           output_file.name(), output_file.insertion_point()));
     } else if (!output_file.name().empty()) {
@@ -1717,6 +1752,9 @@ bool CommandLineInterface::GeneratePluginOutput(
         plugin_name);
       return false;
     }
+
+    // 从CodeGeneratorResponse中获取输出流，写出，这里输出流中的数据时存储在GeneratorContextImpl中的，
+    // GenerateOutput调用成功之后后面会遍历每一个GenerateContextImpl完成WriteAllToDisk()的操作。
 
     // Use CodedOutputStream for convenience; otherwise we'd need to provide
     // our own buffer-copying loop.

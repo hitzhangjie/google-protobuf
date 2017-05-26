@@ -30,9 +30,10 @@
 
 // Author: kenton@google.com (Kenton Varda)
 
+// 这个头文件定义了protoc的命令行接口
 #include <google/protobuf/compiler/command_line_interface.h>
+// protoc中内置了对cpp、python、java语言的支持，对其他语言的支持需要以plugin的方式来支持
 #include <google/protobuf/compiler/cpp/cpp_generator.h>
-
 #ifndef OPENSOURCE_PROTOBUF_CPP_BOOTSTRAP
 #include <google/protobuf/compiler/python/python_generator.h>
 #include <google/protobuf/compiler/java/java_generator.h>
@@ -49,16 +50,19 @@
 
 int main(int argc, char* argv[]) {
 
+  // 初始化protoc命令行接口并开启插件
+  // - 插件只是普通的可执行程序，其文件名以AllowPlugins参数protoc-开头
+  // - 假定protoc --foo_out，那么实际调用的插件是protoc-foo
   google::protobuf::compiler::CommandLineInterface cli;
   cli.AllowPlugins("protoc-");
 
-  // Proto2 C++
+  // Proto2 C++ (指定了--cpp_out将调用cpp::Generator)
   google::protobuf::compiler::cpp::CppGenerator cpp_generator;
   cli.RegisterGenerator("--cpp_out", "--cpp_opt", &cpp_generator,
                         "Generate C++ header and source.");
 
 #ifndef OPENSOURCE_PROTOBUF_CPP_BOOTSTRAP
-  // Proto2 Java
+  // Proto2 Java (指定了--java_out将调用java::Generator)
   google::protobuf::compiler::java::JavaGenerator java_generator;
   cli.RegisterGenerator("--java_out", "--java_opt", &java_generator,
                         "Generate Java source file.");
@@ -66,7 +70,7 @@ int main(int argc, char* argv[]) {
 
 
 #ifndef OPENSOURCE_PROTOBUF_CPP_BOOTSTRAP
-  // Proto2 Python
+  // Proto2 Python (指定了python_out将调用python::Generator)
   google::protobuf::compiler::python::Generator py_generator;
   cli.RegisterGenerator("--python_out", &py_generator,
                         "Generate Python source file.");
@@ -76,31 +80,32 @@ int main(int argc, char* argv[]) {
   cli.RegisterGenerator("--javanano_out", &javanano_generator,
                         "Generate Java Nano source file.");
 
-  // PHP
+  // PHP ...
   google::protobuf::compiler::php::Generator php_generator;
   cli.RegisterGenerator("--php_out", &php_generator,
                         "Generate PHP source file.");
 
-  // Ruby
+  // Ruby ...
   google::protobuf::compiler::ruby::Generator rb_generator;
   cli.RegisterGenerator("--ruby_out", &rb_generator,
                         "Generate Ruby source file.");
 
-  // CSharp
+  // CSharp ...
   google::protobuf::compiler::csharp::Generator csharp_generator;
   cli.RegisterGenerator("--csharp_out", "--csharp_opt", &csharp_generator,
                         "Generate C# source file.");
 
-  // Objective C
+  // Objective C ...
   google::protobuf::compiler::objectivec::ObjectiveCGenerator objc_generator;
   cli.RegisterGenerator("--objc_out", "--objc_opt", &objc_generator,
                         "Generate Objective C header and source.");
 
-  // JavaScript
+  // JavaScript ...
   google::protobuf::compiler::js::Generator js_generator;
   cli.RegisterGenerator("--js_out", &js_generator,
                         "Generate JavaScript source.");
 #endif  // !OPENSOURCE_PROTOBUF_CPP_BOOTSTRAP
 
+  // 解析proto、生成源代码(借助内置的generator或者plugins)、创建源代码文件
   return cli.Run(argc, argv);
 }

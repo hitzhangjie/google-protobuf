@@ -39,6 +39,10 @@
 
 syntax = "proto2";
 
+// descriptor.proto文件中的messages定义了proto文件中所能见到的所有的定义，一个
+// 有效的.proto文件在不提供其他信息（甚至不需要读取它的imports）能够直接被转换
+// 成一个FileDescriptorProto对象。
+
 package google.protobuf;
 option go_package = "github.com/golang/protobuf/protoc-gen-go/descriptor;descriptor";
 option java_package = "com.google.protobuf";
@@ -46,41 +50,35 @@ option java_outer_classname = "DescriptorProtos";
 option csharp_namespace = "Google.Protobuf.Reflection";
 option objc_class_prefix = "GPB";
 
-// descriptor.proto must be optimized for speed because reflection-based
-// algorithms don't work during bootstrapping.
+// descriptor.proto必须在速度方面优化，因为在启动过程中基于反射的算法不起作用
 option optimize_for = SPEED;
 
-// The protocol compiler can output a FileDescriptorSet containing the .proto
-// files it parses.
+// protoc可以将解析的proto文件中的descriptor添加到FileDescriptorSet并输出到文件
 message FileDescriptorSet {
   repeated FileDescriptorProto file = 1;
 }
 
-// Describes a complete .proto file.
+// 下面的message FileDescriptorProto可以用于描述一个完整的proto文件
 message FileDescriptorProto {
-  optional string name = 1;       // file name, relative to root of source tree
-  optional string package = 2;    // e.g. "foo", "foo.bar", etc.
+  optional string name = 1;              // proto文件名，file name，相对于源代码根目录 
+  optional string package = 2;           // proto包名，例如 "foo"、"foo.bar"
+  repeated string dependency = 3;        // proto文件中import进来的其他proto文件列表
+  repeated int32 public_dependency = 10; // 上面public import的proto文件在proto文件列表中的索引
 
-  // Names of files imported by this file.
-  repeated string dependency = 3;
-  // Indexes of the public imported files in the dependency list above.
-  repeated int32 public_dependency = 10;
   // Indexes of the weak imported files in the dependency list.
-  // For Google-internal migration only. Do not use.
-  repeated int32 weak_dependency = 11;
+  repeated int32 weak_dependency = 11;   // 上面weak import的proto文件在proto文件列表中的索引
+                                         // 不要使用，只用于google内部的迁移
 
-  // All top-level definitions in this file.
-  repeated DescriptorProto message_type = 4;
-  repeated EnumDescriptorProto enum_type = 5;
-  repeated ServiceDescriptorProto service = 6;
-  repeated FieldDescriptorProto extension = 7;
+  // proto文件中的所有顶层定义信息
+  repeated DescriptorProto message_type = 4;    // 所有的消息(message)类型定义
+  repeated EnumDescriptorProto enum_type = 5;   // 所有的枚举(enum)类型定义
+  repeated ServiceDescriptorProto service = 6;  // 所有的服务(service)类型定义
+  repeated FieldDescriptorProto extension = 7;  // 所有的扩展字段定义
 
-  optional FileOptions options = 8;
+  optional FileOptions options = 8;             // 文件选项
 
-  // This field contains optional information about the original source code.
-  // You may safely remove this entire field without harming runtime
-  // functionality of the descriptors -- the information is needed only by
-  // development tools.
+  // 这个字段包括了源代码的相关信息，这里的信息可以给开发工具使用，也仅应该提供给开发工具使用；
+  // 可以选择将这个字段中的信息删除，在程序运行期间并不会造成破坏。
   optional SourceCodeInfo source_code_info = 9;
 
   // The syntax of the proto file.
@@ -88,15 +86,15 @@ message FileDescriptorProto {
   optional string syntax = 12;
 }
 
-// Describes a message type.
+// 描述消息类型Message
 message DescriptorProto {
-  optional string name = 1;
+  optional string name = 1;                     // Message的类型名称
 
-  repeated FieldDescriptorProto field = 2;
-  repeated FieldDescriptorProto extension = 6;
+  repeated FieldDescriptorProto field = 2;      // Message中包括的字段列表
+  repeated FieldDescriptorProto extension = 6;  // Message中包括的扩展列表
 
-  repeated DescriptorProto nested_type = 3;
-  repeated EnumDescriptorProto enum_type = 4;
+  repeated DescriptorProto nested_type = 3;     // Message中嵌套的Message类型列表
+  repeated EnumDescriptorProto enum_type = 4;   // Message中嵌套的枚举类型列表
 
   message ExtensionRange {
     optional int32 start = 1;
@@ -121,11 +119,11 @@ message DescriptorProto {
   repeated string reserved_name = 10;
 }
 
-// Describes a field within a message.
+// 描述一个字段（字段可以是Message中的，也可以是某些扩展字段）
 message FieldDescriptorProto {
   enum Type {
     // 0 is reserved for errors.
-    // Order is weird for historical reasons.
+    // 由于历史方面的原因，这里的枚举值的顺序有点奇怪
     TYPE_DOUBLE         = 1;
     TYPE_FLOAT          = 2;
     // Not ZigZag encoded.  Negative numbers take 10 bytes.  Use TYPE_SINT64 if
@@ -156,6 +154,7 @@ message FieldDescriptorProto {
     TYPE_SINT64         = 18;  // Uses ZigZag encoding.
   };
 
+  // 字段修饰符optional、required、repeated
   enum Label {
     // 0 is reserved for errors
     LABEL_OPTIONAL      = 1;
@@ -163,30 +162,28 @@ message FieldDescriptorProto {
     LABEL_REPEATED      = 3;
   };
 
-  optional string name = 1;
-  optional int32 number = 3;
-  optional Label label = 4;
+  optional string name = 1;             // 字段名称
+  optional int32 number = 3;            // 字段tag编号
+  optional Label label = 4;             // 字段修饰符
 
-  // If type_name is set, this need not be set.  If both this and type_name
-  // are set, this must be one of TYPE_ENUM, TYPE_MESSAGE or TYPE_GROUP.
+  // 如果type_name已设置，这个字段无须设置；
+  // 如果这两个字段都设置了，这里的type字段必须是TYPE_ENUM类型或者TYPE_MESSAGE类型
   optional Type type = 5;
 
-  // For message and enum types, this is the name of the type.  If the name
-  // starts with a '.', it is fully-qualified.  Otherwise, C++-like scoping
-  // rules are used to find the type (i.e. first the nested types within this
-  // message are searched, then within the parent, on up to the root
-  // namespace).
+  // 对于TYPE_ENUM或者TYPE_MESSAGE类型，type_name就是type的名字。
+  // 如果name以“.”开头那么它是完全保留的。对于C++来说，其作用域规则要求首先搜
+  // 索当前Message类型的嵌套类型，然后才是parent namespace中的类型，一直到root
+  // namespace。
   optional string type_name = 6;
 
-  // For extensions, this is the name of the type being extended.  It is
-  // resolved in the same manner as type_name.
+  // 对于扩展，它就是被扩展的类型的名字，对它的解析与对type_name的解析时一样的
   optional string extendee = 2;
 
-  // For numeric types, contains the original text representation of the value.
-  // For booleans, "true" or "false".
-  // For strings, contains the default text contents (not escaped in any way).
-  // For bytes, contains the C escaped value.  All bytes >= 128 are escaped.
-  // TODO(kenton):  Base-64 encode?
+  // 对于数值类型，存储了数值的文本表示形式；
+  // 对于布尔类型，存储字符串"true"或"false"；
+  // 对于字符串类型，存储原始的文本内容（未转义的）
+  // 对于字节，存储了c转义后的值（所有>=128的字节都会被转义）
+  // TODO(kenton)，基于base64编码的?
   optional string default_value = 7;
 
   // If set, gives the index of a oneof in the containing type's oneof_decl
@@ -199,7 +196,7 @@ message FieldDescriptorProto {
   // it to camelCase.
   optional string json_name = 10;
 
-  optional FieldOptions options = 8;
+  optional FieldOptions options = 8;    // 字段选项
 }
 
 // Describes a oneof.
@@ -208,16 +205,14 @@ message OneofDescriptorProto {
   optional OneofOptions options = 2;
 }
 
-// Describes an enum type.
+// 描述一个枚举类型enum
 message EnumDescriptorProto {
-  optional string name = 1;
-
-  repeated EnumValueDescriptorProto value = 2;
-
-  optional EnumOptions options = 3;
+  optional string name = 1;                     // 枚举类型名称
+  repeated EnumValueDescriptorProto value = 2;  // 枚举类型中包括的枚举值列表
+  optional EnumOptions options = 3;             // 枚举类型选项
 }
 
-// Describes a value within an enum.
+// 描述一个枚举类型中的一个枚举值
 message EnumValueDescriptorProto {
   optional string name = 1;
   optional int32 number = 2;
@@ -225,24 +220,19 @@ message EnumValueDescriptorProto {
   optional EnumValueOptions options = 3;
 }
 
-// Describes a service.
+// 描述一个rpc service.
 message ServiceDescriptorProto {
-  optional string name = 1;
-  repeated MethodDescriptorProto method = 2;
-
-  optional ServiceOptions options = 3;
+  optional string name = 1;                     // 服务名称
+  repeated MethodDescriptorProto method = 2;    // 服务对应的方法列表
+  optional ServiceOptions options = 3;          // 服务选项
 }
 
-// Describes a method of a service.
+// 描述一个服务的方法
 message MethodDescriptorProto {
-  optional string name = 1;
-
-  // Input and output type names.  These are resolved in the same way as
-  // FieldDescriptorProto.type_name, but must refer to a message type.
-  optional string input_type = 2;
-  optional string output_type = 3;
-
-  optional MethodOptions options = 4;
+  optional string name = 1;                     // 方法名称
+  optional string input_type = 2;               // 方法入参类型
+  optional string output_type = 3;              // 方法出参类型
+  optional MethodOptions options = 4;           // 方法选项
 
   // Identifies if client streams multiple client messages
   optional bool client_streaming = 5 [default=false];
@@ -254,61 +244,43 @@ message MethodDescriptorProto {
 // ===================================================================
 // Options
 
-// Each of the definitions above may have "options" attached.  These are
-// just annotations which may cause code to be generated slightly differently
-// or may contain hints for code that manipulates protocol messages.
+// 上面的每一个定义基本上都包括了选项option相关的字段，这些选项字段仅仅是一些
+// 注解，这些注解会影响代码的生成，使得生成的代码稍有不同，注解也可能包含了操作
+// message的代码的一些提示信息、说明信息。
 //
-// Clients may define custom options as extensions of the *Options messages.
-// These extensions may not yet be known at parsing time, so the parser cannot
-// store the values in them.  Instead it stores them in a field in the *Options
-// message called uninterpreted_option. This field must have the same name
-// across all *Options messages. We then use this field to populate the
-// extensions when we build a descriptor, at which point all protos have been
-// parsed and so all extensions are known.
+// clients可能会定义一些自定义的选项来作为*Options message的extensions，这些
+// extensions在parsing阶段可能还无法确定下来，所以parser不能存储他们的值，而是
+// 将这些自定义的选项先存储到一个*Options message里面，称之为
+// uinterpreted_option。这个字段的名字在所有的*Options message里面都必须保证是
+// 相同的。之后在我们构建descriptor的时候，这个时候所有的proto文件也都解析完了、
+// 所有的extensions也都知道了，这个时候我们再用这里的uinterpreted_option字段去
+// 填充那些extensions。
 //
-// Extension numbers for custom options may be chosen as follows:
-// * For options which will only be used within a single application or
-//   organization, or for experimental options, use field numbers 50000
-//   through 99999.  It is up to you to ensure that you do not use the
-//   same number for multiple options.
-// * For options which will be published and used publicly by multiple
-//   independent entities, e-mail protobuf-global-extension-registry@google.com
-//   to reserve extension numbers. Simply provide your project name (e.g.
-//   Objective-C plugin) and your project website (if available) -- there's no
-//   need to explain how you intend to use them. Usually you only need one
-//   extension number. You can declare multiple options with only one extension
-//   number by putting them in a sub-message. See the Custom Options section of
-//   the docs for examples:
-//   https://developers.google.com/protocol-buffers/docs/proto#options
-//   If this turns out to be popular, a web service will be set up
-//   to automatically assign option numbers.
-
+// 用于自定义选项的extensions编号的选择一般遵循下面的方法：
+// * 对于只在一个应用程序或者组织内使用的选项，或者用于实验目的的选项，使用字
+//   段编号50000~99999范围内的。对于多个选项，用户需要确保不使用相同的编号。
+// * 对于可能被多个互不依赖的实体所共同使用的选项，需要给
+//   protobuf-global-extension-registry@google.com发邮件来申请预留扩展编号。需
+//   要提供工程名称、工程站点，没必要解释为什么需要申请预留某个特定的编号。通
+//   常只需要一个扩展编号，可以声明多个选项但是只使用这一个相同的扩展编号。如
+//   果申请公共的扩展编号是个刚需，google可能会发布一个web service接口来自动分
+//   配选项编号。
 
 message FileOptions {
 
-  // Sets the Java package where classes generated from this .proto will be
-  // placed.  By default, the proto package is used, but this is often
-  // inappropriate because proto packages do not normally start with backwards
   // domain names.
   optional string java_package = 1;
 
-
-  // If set, all the classes from the .proto file are wrapped in a single
-  // outer class with the given name.  This applies to both Proto1
-  // (equivalent to the old "--one_java_file" option) and Proto2 (where
-  // a .proto always translates to a single class, but you may want to
-  // explicitly choose the class name).
+  // 指定一个外部类名称，当前proto文件中生成的所有的类将被封装在这个外部类当中
   optional string java_outer_classname = 8;
 
-  // If set true, then the Java code generator will generate a separate .java
-  // file for each top-level message, enum, and service defined in the .proto
-  // file.  Thus, these types will *not* be nested inside the outer class
-  // named by java_outer_classname.  However, the outer class will still be
-  // generated to contain the file's getDescriptor() method as well as any
-  // top-level extensions defined in the file.
+  // 如果设置为true，java代码生成器将为每个顶层message、enum、service定义生成
+  // 单独的java文件，默认为false
   optional bool java_multiple_files = 10 [default=false];
 
-  // This option does nothing.
+  // 如果设置为true，java代码生成器将未每个message定义生成equals()、hashCode()
+  // 方法，默认为false。本来AbstractMessage基类经包括了一个基于反射的equals()、
+  // hashCode()方法实现，这里的这个设置项是一个性能方面的优化
   optional bool java_generate_equals_and_hash = 20 [deprecated=true];
 
   // If set true, then the Java2 code generator will generate code that
@@ -319,8 +291,7 @@ message FileOptions {
   // This option has no effect on when used with the lite runtime.
   optional bool java_string_check_utf8 = 27 [default=false];
 
-
-  // Generated classes can be optimized for speed or code size.
+  // 优化类型，生成的类可以进行速度优化、代码尺寸优化
   enum OptimizeMode {
     SPEED = 1;        // Generate complete code for parsing, serialization,
                       // etc.
@@ -329,25 +300,17 @@ message FileOptions {
   }
   optional OptimizeMode optimize_for = 9 [default=SPEED];
 
-  // Sets the Go package where structs generated from this .proto will be
-  // placed. If omitted, the Go package will be derived from the following:
-  //   - The basename of the package import path, if provided.
-  //   - Otherwise, the package statement in the .proto file, if present.
-  //   - Otherwise, the basename of the .proto file, without extension.
+  // 设置go代码的包名
   optional string go_package = 11;
 
-
-
-  // Should generic services be generated in each language?  "Generic" services
-  // are not specific to any particular RPC system.  They are generated by the
-  // main code generators in each language (without additional plugins).
-  // Generic services were the only kind of service generation supported by
-  // early versions of google.protobuf.
+  // 是否应该针对每一门语言都生成generice services？generic服务并不特定于任何
+  // 的rpc系统，它是由每个语言的注代码生成器来生成的，不借助于额外的插件。
+  // generic services是早期protoo2这个版本说支持的唯一一种服务类型。
   //
-  // Generic services are now considered deprecated in favor of using plugins
-  // that generate code specific to your particular RPC system.  Therefore,
-  // these default to false.  Old code which depends on generic services should
-  // explicitly set them to true.
+  // 由于现在推崇使用plugins，plugins可以生成针对特定rpc系统的代码，generic
+  // services现在可以看做是被废弃了。因此，以前proto2总的generice services的默
+  // 认设置默认为false，早期的依赖于generic services的代码需要显示设置这些选项
+  // 为true。
   optional bool cc_generic_services = 16 [default=false];
   optional bool java_generic_services = 17 [default=false];
   optional bool py_generic_services = 18 [default=false];
@@ -380,39 +343,22 @@ message FileOptions {
   // from this .proto. Default is empty.
   optional string php_class_prefix = 40;
 
-  // The parser stores options it doesn't recognize here. See above.
+  // parser将不识别的选项存储在这里的uinterpreted_option
   repeated UninterpretedOption uninterpreted_option = 999;
 
-  // Clients can define custom options in extensions of this message. See above.
+  // 客户可以定义自定义选项来扩展当前Message
   extensions 1000 to max;
 
   reserved 38;
 }
 
 message MessageOptions {
-  // Set true to use the old proto1 MessageSet wire format for extensions.
-  // This is provided for backwards-compatibility with the MessageSet wire
-  // format.  You should not use this for any other reason:  It's less
-  // efficient, has fewer features, and is more complicated.
-  //
-  // The message must be defined exactly as follows:
-  //   message Foo {
-  //     option message_set_wire_format = true;
-  //     extensions 4 to max;
-  //   }
-  // Note that the message cannot have any defined fields; MessageSets only
-  // have extensions.
-  //
-  // All extensions of your type must be singular messages; e.g. they cannot
-  // be int32s, enums, or repeated messages.
-  //
-  // Because this is an option, the above two restrictions are not enforced by
-  // the protocol compiler.
+  // 设为true则使用老的proto1 MessageSet wire format……兼容性目的，没必要使用
   optional bool message_set_wire_format = 1 [default=false];
 
-  // Disables the generation of the standard "descriptor()" accessor, which can
-  // conflict with a field of the same name.  This is meant to make migration
-  // from proto1 easier; new code should avoid fields named "descriptor".
+  // 禁用标准的descriptor()方法的生成，因为如果有个字段名是descriptor的话会生
+  // 成一个同名的函数，会冲突。这使得从proto1迁移到后续版本更简单，但是新版本
+  // 中还是应该避免使用字段descriptor。
   optional bool no_standard_descriptor_accessor = 2 [default=false];
 
   // Is this message deprecated?
@@ -447,10 +393,10 @@ message MessageOptions {
   reserved 8;  // javalite_serializable
   reserved 9;  // javanano_as_lite
 
-  // The parser stores options it doesn't recognize here. See above.
+  // parser将不识别的选项存储在这个字段里
   repeated UninterpretedOption uninterpreted_option = 999;
 
-  // Clients can define custom options in extensions of this message. See above.
+  // 用户可以定义自定义选项来扩展当前Message
   extensions 1000 to max;
 }
 
@@ -468,11 +414,9 @@ message FieldOptions {
 
     STRING_PIECE = 2;
   }
-  // The packed option can be enabled for repeated primitive fields to enable
-  // a more efficient representation on the wire. Rather than repeatedly
-  // writing the tag and type for each element, the entire array is encoded as
-  // a single length-delimited blob. In proto3, only explicit setting it to
-  // false will avoid using packed encoding.
+  // 开启packed选项之后，对于repeated基本数据类型字段的表示会更加高效。不再针
+  // 对repeated字段中的各个元素执行写tag、类型操作，而是将整个数组作为一个固定
+  // 长度的blob来存储。
   optional bool packed = 2;
 
   // The jstype option determines the JavaScript type used for values of the
@@ -496,50 +440,21 @@ message FieldOptions {
     JS_NUMBER = 2;
   }
 
-  // Should this field be parsed lazily?  Lazy applies only to message-type
-  // fields.  It means that when the outer message is initially parsed, the
-  // inner message's contents will not be parsed but instead stored in encoded
-  // form.  The inner message will actually be parsed when it is first accessed.
-  //
-  // This is only a hint.  Implementations are free to choose whether to use
-  // eager or lazy parsing regardless of the value of this option.  However,
-  // setting this option true suggests that the protocol author believes that
-  // using lazy parsing on this field is worth the additional bookkeeping
-  // overhead typically needed to implement it.
-  //
-  // This option does not affect the public interface of any generated code;
-  // all method signatures remain the same.  Furthermore, thread-safety of the
-  // interface is not affected by this option; const methods remain safe to
-  // call from multiple threads concurrently, while non-const methods continue
-  // to require exclusive access.
-  //
-  //
-  // Note that implementations may choose not to check required fields within
-  // a lazy sub-message.  That is, calling IsInitialized() on the outer message
-  // may return true even if the inner message has missing required fields.
-  // This is necessary because otherwise the inner message would have to be
-  // parsed in order to perform the check, defeating the purpose of lazy
-  // parsing.  An implementation which chooses not to check required fields
-  // must be consistent about it.  That is, for any particular sub-message, the
-  // implementation must either *always* check its required fields, or *never*
-  // check its required fields, regardless of whether or not the message has
-  // been parsed.
+  // 当前字段是否需要lazy parsing？只是建议，lazy为true，protoc不一定lazy parsing
   optional bool lazy = 5 [default=false];
 
-  // Is this field deprecated?
-  // Depending on the target platform, this can emit Deprecated annotations
-  // for accessors, or it will be completely ignored; in the very least, this
-  // is a formalization for deprecating fields.
+  // 当前字段是否已经被废弃，跟目标平台相关，这个字段可以为生成的accessor方法
+  // 生成Deprecated注解，如果目标平台不支持就会忽略这个选项。不管目标平台是否
+  // 支持，proto里面要想废弃一个字段加deprecated选项还是非常正确的做法。
   optional bool deprecated = 3 [default=false];
 
-  // For Google-internal migration only. Do not use.
+  // google内部迁移使用，因避免使用
   optional bool weak = 10 [default=false];
 
-
-  // The parser stores options it doesn't recognize here. See above.
+  // 用户可以定义自定义选项来扩展当前Message
   repeated UninterpretedOption uninterpreted_option = 999;
 
-  // Clients can define custom options in extensions of this message. See above.
+  // 用户自定义选项来扩展message
   extensions 1000 to max;
 
   reserved 4;  // removed jtype
@@ -555,8 +470,8 @@ message OneofOptions {
 
 message EnumOptions {
 
-  // Set this option to true to allow mapping different tag names to the same
-  // value.
+  // 不允许将多个不同的tag names映射到一个相同的值
+  // - 意思是说不允许多个字段的编号相同
   optional bool allow_alias = 2;
 
   // Is this enum deprecated?
@@ -567,10 +482,10 @@ message EnumOptions {
 
   reserved 5;  // javanano_as_lite
 
-  // The parser stores options it doesn't recognize here. See above.
+  // 用户可以定义自定义选项来扩展当前Message
   repeated UninterpretedOption uninterpreted_option = 999;
 
-  // Clients can define custom options in extensions of this message. See above.
+  // 用户自定义选项来扩展message
   extensions 1000 to max;
 }
 
@@ -581,10 +496,10 @@ message EnumValueOptions {
   // this is a formalization for deprecating enum values.
   optional bool deprecated = 1 [default=false];
 
-  // The parser stores options it doesn't recognize here. See above.
+  // 用户可以定义自定义选项来扩展当前Message
   repeated UninterpretedOption uninterpreted_option = 999;
 
-  // Clients can define custom options in extensions of this message. See above.
+  // 用户自定义选项来扩展message
   extensions 1000 to max;
 }
 
@@ -601,19 +516,18 @@ message ServiceOptions {
   // this is a formalization for deprecating services.
   optional bool deprecated = 33 [default=false];
 
-  // The parser stores options it doesn't recognize here. See above.
+  // 用户可以定义自定义选项来扩展当前Message
   repeated UninterpretedOption uninterpreted_option = 999;
 
-  // Clients can define custom options in extensions of this message. See above.
+  // 用户自定义选项来扩展message
   extensions 1000 to max;
 }
 
 message MethodOptions {
 
-  // Note:  Field numbers 1 through 32 are reserved for Google's internal RPC
-  //   framework.  We apologize for hoarding these numbers to ourselves, but
-  //   we were already using them long before we decided to release Protocol
-  //   Buffers.
+  // 注意：字段编号1~32被保留给google内部rpc框架使用，google的解释是，在
+  // protobuf被公开给外部使用之前内部就已经大量使用了，且1~32倍使用的很多，也
+  // 是不得已的事情，总不能为了开源、推广一个内部组件就把自己的生意砸了吧。
 
   // Is this method deprecated?
   // Depending on the target platform, this can emit Deprecated annotations
@@ -632,34 +546,31 @@ message MethodOptions {
   optional IdempotencyLevel idempotency_level =
       34 [default=IDEMPOTENCY_UNKNOWN];
 
-  // The parser stores options it doesn't recognize here. See above.
+  // 用户可以定义自定义选项来扩展当前Message
   repeated UninterpretedOption uninterpreted_option = 999;
 
-  // Clients can define custom options in extensions of this message. See above.
+  // 用户自定义选项来扩展message
   extensions 1000 to max;
 }
 
 
-// A message representing a option the parser does not recognize. This only
-// appears in options protos created by the compiler::Parser class.
-// DescriptorPool resolves these when building Descriptor objects. Therefore,
-// options protos in descriptor objects (e.g. returned by Descriptor::options(),
-// or produced by Descriptor::CopyTo()) will never have UninterpretedOptions
-// in them.
+// 描述一个parser不认识的option
+// - UninterpretedOption只会出现在compiler::Parser类创建的options protos中；
+// - 构建Descriptor对象的时候DescriptorPool会解析UninterpretedOptions；
+// 因此，descriptor对象中的options protos（通过Descriptor::options()返回，或者
+// 通过Descriptor::CopyTo()生成）是不会包括UinterpretedOptions的。
 message UninterpretedOption {
-  // The name of the uninterpreted option.  Each string represents a segment in
-  // a dot-separated name.  is_extension is true iff a segment represents an
-  // extension (denoted with parentheses in options specs in .proto files).
-  // E.g.,{ ["foo", false], ["bar.baz", true], ["qux", false] } represents
-  // "foo.(bar.baz).qux".
+  // uinterpreted选项的名字，name中每个元素的name_part字段都表示name中的点分字
+  // 符串的一段，如果name_part是一个扩展（通过在字符串两端用括号括起来表示），
+  // is_extension字段为true。
+  // 例如，{["foo", false], ["bar.baz",true], ["qux",false]}表示"foo.(bar.baz).qux"。
   message NamePart {
     required string name_part = 1;
     required bool is_extension = 2;
   }
   repeated NamePart name = 2;
 
-  // The value of the uninterpreted option, in whatever type the tokenizer
-  // identified it as during parsing. Exactly one of these should be set.
+  // uinterpreted选项的值，会设置下面字段中其中一个的值
   optional string identifier_value = 3;
   optional uint64 positive_int_value = 4;
   optional int64 negative_int_value = 5;
@@ -671,23 +582,21 @@ message UninterpretedOption {
 // ===================================================================
 // Optional source code info
 
-// Encapsulates information about the original source file from which a
-// FileDescriptorProto was generated.
+// FileDescriptorProto是从之前的source file中生成的（source file指的是proto文
+// 件），这里的SourceCodeInfo指的是proto中的“源代码”信息。
 message SourceCodeInfo {
-  // A Location identifies a piece of source code in a .proto file which
-  // corresponds to a particular definition.  This information is intended
-  // to be useful to IDEs, code indexers, documentation generators, and similar
-  // tools.
+  // Location用于识别proto文件中的源代码片段，往往对应着一个特定的定义。这些
+  // Location信息对于IDE、代码索引工具、文档生成工具等是非常重要的。
   //
-  // For example, say we have a file like:
+  // 下面说明一下Location的概念和作用，以下面这个message为例：
   //   message Foo {
   //     optional string foo = 1;
   //   }
-  // Let's look at just the field definition:
+  // 我们先只看上面这个message中的字段定义：
   //   optional string foo = 1;
   //   ^       ^^     ^^  ^  ^^^
   //   a       bc     de  f  ghi
-  // We have the following locations:
+  // 我们可以得到下面这几个Location：
   //   span   path               represents
   //   [a,i)  [ 4, 0, 2, 0 ]     The whole field definition.
   //   [a,b)  [ 4, 0, 2, 0, 4 ]  The label (optional).
@@ -695,78 +604,41 @@ message SourceCodeInfo {
   //   [e,f)  [ 4, 0, 2, 0, 1 ]  The name (foo).
   //   [g,h)  [ 4, 0, 2, 0, 3 ]  The number (1).
   //
-  // Notes:
-  // - A location may refer to a repeated field itself (i.e. not to any
-  //   particular index within it).  This is used whenever a set of elements are
-  //   logically enclosed in a single code segment.  For example, an entire
-  //   extend block (possibly containing multiple extension definitions) will
-  //   have an outer location whose path refers to the "extensions" repeated
-  //   field without an index.
-  // - Multiple locations may have the same path.  This happens when a single
-  //   logical declaration is spread out across multiple places.  The most
-  //   obvious example is the "extend" block again -- there may be multiple
-  //   extend blocks in the same scope, each of which will have the same path.
-  // - A location's span is not always a subset of its parent's span.  For
-  //   example, the "extendee" of an extension declaration appears at the
-  //   beginning of the "extend" block and is shared by all extensions within
-  //   the block.
-  // - Just because a location's span is a subset of some other location's span
-  //   does not mean that it is a descendent.  For example, a "group" defines
-  //   both a type and a field in a single declaration.  Thus, the locations
-  //   corresponding to the type and field and their components will overlap.
-  // - Code which tries to interpret locations should probably be designed to
-  //   ignore those that it doesn't understand, as more types of locations could
-  //   be recorded in the future.
+  // 每个proto文件解析之后用一个FileDescriptorProto来表示，所以Lcoation路径位
+  // 置从FileDescriptorProto开始。
+  // - 因为message Foo是一个message，proto中所有顶层message类型定义都在
+  //   FileDescriptorProto中message_type字段存储，这个字段的tag是4，所以Location为[4]；
+  // - 又因为message_type是repeated DescriptorProto类型，因为当前proto示例中
+  //   Foo为第一个message，所以其在message_type列表中的索引值为0，所以Location为[4,0]；
+  // - 因为我们现在看的“源代码”是“optional string foo = 1;”，我们需要定位到
+  //   message中的字段位置，message Foo中的所有字段都在DescriptorProto中的field字
+  //   段中记录，这个字段的tag=2，所以Location变为[4,0,2]；
+  // - 又因为这个DescriptorProto中的field为repeated FieldDescriptorProto field，
+  //   因为这个message中只有一个字段foo，所以foo在field列表中的索引值为0，Location变为[4,0,2,0];
+  // 上面解释了定位到完整的“optional string foo = 1”定义这个field的Location变
+  // 化过程，下面再说一下label、type、name、number的Location如何进一步确定。
+  // FieldDescriptorProto中label的tag位4，type的tag为5，name的tag为1，number的
+  // tag为3，Location对应的追加索引4、5、1、3。gg!
+  //
+  // proto文件中的源代码信息就是由一系列的Location来寻址的。
   repeated Location location = 1;
+
   message Location {
-    // Identifies which part of the FileDescriptorProto was defined at this
-    // location.
-    //
-    // Each element is a field number or an index.  They form a path from
-    // the root FileDescriptorProto to the place where the definition.  For
-    // example, this path:
-    //   [ 4, 3, 2, 7, 1 ]
-    // refers to:
-    //   file.message_type(3)  // 4, 3
-    //       .field(7)         // 2, 7
-    //       .name()           // 1
-    // This is because FileDescriptorProto.message_type has field number 4:
-    //   repeated DescriptorProto message_type = 4;
-    // and DescriptorProto.field has field number 2:
-    //   repeated FieldDescriptorProto field = 2;
-    // and FieldDescriptorProto.name has field number 1:
-    //   optional string name = 1;
-    //
-    // Thus, the above path gives the location of a field name.  If we removed
-    // the last element:
-    //   [ 4, 3, 2, 7 ]
-    // this path refers to the whole field declaration (from the beginning
-    // of the label to the terminating semicolon).
+    // 前面已经描述了Location的确定过程，一个Location如[4,0,2,0]其中的数字要么
+    // 是字段的tag编号要么是repeated列表中的索引值，这里的数字构成的数组保存在
+    // path中。
     repeated int32 path = 1 [packed=true];
 
-    // Always has exactly three or four elements: start line, start column,
-    // end line (optional, otherwise assumed same as start line), end column.
-    // These are packed into a single field for efficiency.  Note that line
-    // and column numbers are zero-based -- typically you will want to add
-    // 1 to each before displaying to a user.
+    // 该字段span总是包括3个或者4个元素，依次表示startline、startcolumn、endline、endcolumn
     repeated int32 span = 2 [packed=true];
 
-    // If this SourceCodeInfo represents a complete declaration, these are any
-    // comments appearing before and after the declaration which appear to be
-    // attached to the declaration.
+    // 如果这个SourceCodeInfo代表一个完整的声明的话，可能在这个声明的前面或者
+    // 后面可能有一些attached的注释。
     //
-    // A series of line comments appearing on consecutive lines, with no other
-    // tokens appearing on those lines, will be treated as a single comment.
+    // 连续的多个行注释看做是一个单独的注释。
     //
-    // leading_detached_comments will keep paragraphs of comments that appear
-    // before (but not connected to) the current element. Each paragraph,
-    // separated by empty lines, will be one comment element in the repeated
-    // field.
-    //
-    // Only the comment content is provided; comment markers (e.g. //) are
-    // stripped out.  For block comments, leading whitespace and an asterisk
-    // will be stripped from the beginning of each line other than the first.
-    // Newlines are included in the output.
+    // 这个字段只记录了注释内容，不包括注释内容开头的注释符号//。对于块注释，
+    // 注释前面的空白字符、*这几种符号也会被清理掉。但是会包括换行符。
     //
     // Examples:
     //
@@ -783,12 +655,6 @@ message SourceCodeInfo {
     //   // Another line attached to qux.
     //   optional double qux = 4;
     //
-    //   // Detached comment for corge. This is not leading or trailing comments
-    //   // to qux or corge because there are blank lines separating it from
-    //   // both.
-    //
-    //   // Detached comment for corge paragraph 2.
-    //
     //   optional string corge = 5;
     //   /* Block comment attached
     //    * to corge.  Leading asterisks
@@ -796,10 +662,13 @@ message SourceCodeInfo {
     //   /* Block comment attached to
     //    * grault. */
     //   optional int32 grault = 6;
-    //
-    //   // ignored detached comments.
+
+    // Location前面的注释信息
     optional string leading_comments = 3;
+
+    // Location后面的注释信息
     optional string trailing_comments = 4;
+
     repeated string leading_detached_comments = 6;
   }
 }
