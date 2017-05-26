@@ -167,3 +167,9 @@ js/google/
 js/node_modules/
 js/testproto_libs1.js
 js/testproto_libs2.js
+
+# customized
+build
+**/tags
+
+
